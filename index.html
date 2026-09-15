@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Free Craft</title>
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect fill='%235a9a3a' width='16' height='16'/><rect fill='%2370b848' y='0' width='16' height='5'/></svg>" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <canvas id="c"></canvas>
+    <div id="ui">
+      <div id="menu" class="screen menu">
+        <div class="logo">FREE CRAFT</div>
+        <div class="splash">Finally, it's free.</div>
+        <div class="btn-col">
+          <button class="mc" data-start="survival">Survival</button>
+          <button class="mc" data-start="creative">Creative</button>
+          <div class="row">
+            <input class="mc" id="seed" placeholder="Seed (optional)" />
+          </div>
+        </div>
+        <div class="hint">
+          WASD move · Space jump · Shift sneak · Ctrl sprint<br />
+          Mouse look · F5 camera · E inventory · 1-9 hotbar<br />
+          Left break/attack · Right place/use · C items (creative) · Esc pause
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
