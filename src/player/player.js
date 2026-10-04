@@ -13,13 +13,19 @@ export class Player {
     this.yaw = 0;
     this.pitch = 0;
     this.onGround = false;
-    this.flying = mode === "creative";
+    this.flying = false; // double-tap Space in creative to fly
     this.sprint = false;
     this.sneak = false;
     this.swim = false;
     this.health = 20;
     this.hunger = 20;
     this.sat = 5;
+    this.air = 10;
+    this.airMax = 10;
+    this.drownT = 0;
+    this.headInWater = false;
+    this._dblSprint = false;
+    this.stepT = 0;
     this.xp = 0;
     this.hurtCd = 0;
     this.w = 0.6;
@@ -28,6 +34,10 @@ export class Player {
     this.camMode = 0;
     this.sens = 0.0035;
     this.fov = 75;
+    this._fovS = 75;
+    this.bobPhase = 0;
+    this.bobAmp = 0;
+    this.landT = 0;
     this.thirdDist = 4.2;
     this.invertY = false;
     this.keys = {};
@@ -39,6 +49,14 @@ export class Player {
     this.breakPos = null;
     this.portalT = 0;
     this.boat = null;
+    this.vehicle = null;
+    this.sitting = false;
+    this.sitPos = new THREE.Vector3();
+    this.hidden = false;
+    this.small = false;
+    this.frozen = false;
+    this.boostT = 0;
+    this.regenT = 0;
     this.dim = world.dim;
     this.dead = false;
     this.fallStart = s.y;
@@ -47,16 +65,14 @@ export class Player {
   }
 
   fillSurvival() {
-    this.inv.add(B.planks, 16);
-    this.inv.add(B.torch, 8);
+    // no free blocks: survival starts with tools and food only - craft your blocks
     this.inv.add(I.wPick, 1);
+    this.inv.add(I.wAxe, 1);
+    this.inv.add(I.apple, 3);
   }
 
   fillCreative() {
-    const start = [B.grass, B.dirt, B.stone, B.cobble, B.log, B.planks, B.glass, B.torch, B.tnt];
-    start.forEach((id, i) => {
-      this.inv.hotbar[i] = { id, count: 64 };
-    });
+    // no pre-filled blocks: creative pulls everything from the item selector (C)
   }
 
   eyePos() {
@@ -96,7 +112,10 @@ export class Player {
       for (let z = z0; z <= z1; z++) {
         for (let x = x0; x <= x1; x++) {
           const id = this.world.getBlock(x, y, z);
-          if (isSolid(id) && id !== B.netherPortal && id !== B.endPortal) return true;
+          if (!isSolid(id) || id === B.netherPortal || id === B.endPortal) continue;
+          // sculpted mini-blocks are walk-through decorations
+          if (this.world.minis && this.world.minis.has(`${x},${y},${z}`)) continue;
+          return true;
         }
       }
     }
@@ -115,23 +134,61 @@ export class Player {
     if (this.dead) return;
     this.hurtCd = Math.max(0, this.hurtCd - dt);
     this.attackCd = Math.max(0, this.attackCd - dt);
+    this.boostT = Math.max(0, this.boostT - dt);
+    this.regenT = Math.max(0, this.regenT - dt);
     const k = this.keys;
+    if (this.frozen) {
+      this.vel.set(0, 0, 0);
+      this.portalLogic(dt);
+      this.applyCamera(camera, dt);
+      this.syncModel(dt);
+      return;
+    }
+    if (this.hidden) {
+      this.vel.set(0, 0, 0);
+      if (k.KeyH) this.unhide();
+      this.portalLogic(dt);
+      this.applyCamera(camera, dt);
+      this.syncModel(dt);
+      return;
+    }
+    if (this.sitting) {
+      this.pos.copy(this.sitPos);
+      this.vel.set(0, 0, 0);
+      if (k.Space || k.KeyW) {
+        this.sitting = false;
+        this.pos.y += 0.7;
+      }
+      this.portalLogic(dt);
+      this.applyCamera(camera, dt);
+      this.syncModel(dt);
+      return;
+    }
+    if (this.vehicle) {
+      this.vel.set(0, 0, 0);
+      this.portalLogic(dt);
+      this.applyCamera(camera, dt);
+      this.syncModel(dt);
+      return;
+    }
     if (k.ArrowLeft) this.yaw += 2.4 * dt;
     if (k.ArrowRight) this.yaw -= 2.4 * dt;
     if (k.ArrowUp) this.pitch = Math.min(Math.PI / 2 - 0.01, this.pitch + 1.8 * dt);
     if (k.ArrowDown) this.pitch = Math.max(-Math.PI / 2 + 0.01, this.pitch - 1.8 * dt);
-    this.sprint = !!(k.ControlLeft || k.ControlRight);
+    const wantSprint = !!(k.ControlLeft || k.ControlRight) || this._dblSprint;
+    this.sprint = wantSprint && (this.mode === "creative" || this.hunger > 6);
     this.sneak = !!(k.ShiftLeft || k.ShiftRight);
     if (this.boat) {
       this.updateBoat(dt);
-      this.applyCamera(camera);
+      this.applyCamera(camera, dt);
       this.syncModel(dt);
       return;
     }
 
-    let speed = this.flying ? 12 : this.sprint ? 5.6 : 4.3;
-    if (this.sneak && !this.flying) speed = 1.3;
-    if (this.inFluid(B.water) && !this.flying) speed = 2.2;
+    let speed = this.flying ? 9 : this.sprint ? 5 : 3.6;
+    if (this.boostT > 0) speed *= 1.5;
+    if (this.sneak && !this.flying) speed = 1.4;
+    if (this.inFluid(B.water) && !this.flying) speed = 2.6;
     if (this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y), Math.floor(this.pos.z)) === B.soulSand) speed *= 0.4;
 
     const f = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
@@ -150,27 +207,41 @@ export class Player {
       if (k.Space) this.vel.y += speed;
       if (this.sneak) this.vel.y -= speed;
     } else {
-      this.vel.x = wish.x;
-      this.vel.z = wish.z;
       const water = this.inFluid(B.water);
       const lava = this.inFluid(B.lava);
+      const resp = water || lava ? 6 : this.onGround ? 13 : 6;
+      const kk = 1 - Math.exp(-resp * dt);
+      this.vel.x += (wish.x - this.vel.x) * kk;
+      this.vel.z += (wish.z - this.vel.z) * kk;
       if (water || lava) {
-        this.vel.y += (k.Space ? 8 : -3) * dt;
+        this.vel.y += (k.Space ? 10 : -2.5) * dt;
         this.vel.y *= 0.9;
         if (lava && this.mode === "survival") this.hurt(4 * dt, "lava");
       } else {
-        this.vel.y -= 28 * dt;
-        if (k.Space && this.onGround) this.vel.y = 8.4;
+        this.vel.y -= 26 * dt;
+        if (this.vel.y < -40) this.vel.y = -40; // terminal velocity
+        if (k.Space && this.onGround) this.vel.y = 5.8; // small hop, not a big jump
       }
     }
 
     this.moveAxis("x", this.vel.x * dt);
     this.moveAxis("z", this.vel.z * dt);
     this.onGround = false;
-    const before = this.pos.y;
-    this.moveAxis("y", this.vel.y * dt);
-    if (this.pos.y === before && this.vel.y < 0) {
+    // sub-stepped falling: like a dropped paper we always land on the FIRST
+    // surface below instead of tunneling through blocks at high speed
+    const dy = this.vel.y * dt;
+    const sub = Math.max(1, Math.ceil(Math.abs(dy) / 0.4));
+    let hitY = false;
+    for (let i = 0; i < sub; i++) {
+      if (this.moveAxis("y", dy / sub)) {
+        hitY = true;
+        break;
+      }
+    }
+    if (hitY && dy <= 0) {
+      // landed on a surface
       this.onGround = true;
+      this.landT = Math.min(0.24, (Math.abs(dy) / Math.max(dt, 0.001)) * 0.011);
       if (this.mode === "survival" && this.fallStart - this.pos.y > 4) {
         const dmg = Math.floor(this.fallStart - this.pos.y - 3);
         if (dmg > 0) this.hurt(dmg, "fall");
@@ -180,12 +251,40 @@ export class Player {
     }
     if (!this.onGround && this.vel.y > 0) this.fallStart = this.pos.y;
     if (this.pos.y < -4 && this.mode === "survival") this.hurt(20, "void");
+    if (this.pos.y < -40) {
+      // fell out of the world: return to the surface instead of falling forever
+      const s = this.world.spawnPos();
+      this.pos.set(s.x, s.y + 1, s.z);
+      this.vel.set(0, 0, 0);
+      this.fallStart = this.pos.y;
+    }
 
     if (wish.lengthSq() > 0 && this.onGround) this.walk += dt * speed;
     this.bob += dt * (this.onGround && wish.lengthSq() ? speed : 0);
 
+    // drowning: air drains while the head is submerged, then damage every second
+    const eyeNow = this.eyePos();
+    this.headInWater = this.world.getBlock(Math.floor(eyeNow.x), Math.floor(eyeNow.y), Math.floor(eyeNow.z)) === B.water;
+    if (this.mode === "survival") {
+      if (this.headInWater) {
+        this.air = Math.max(0, this.air - dt * 0.7); // ~14s of air
+        if (this.air <= 0) {
+          this.drownT += dt;
+          if (this.drownT >= 1) {
+            this.drownT = 0;
+            this.hurt(2, "drown");
+          }
+        }
+      } else {
+        this.air = Math.min(this.airMax, this.air + dt * 5);
+        this.drownT = 0;
+      }
+    } else {
+      this.air = this.airMax;
+    }
+
     this.portalLogic(dt);
-    this.applyCamera(camera);
+    this.applyCamera(camera, dt);
     this.syncModel(dt);
   }
 
@@ -211,24 +310,51 @@ export class Player {
     }
   }
 
+  /** returns true if the move was blocked by a wall/floor */
   moveAxis(axis, delta) {
+    const prev = this.pos[axis];
     this.pos[axis] += delta;
-    if (this.collides(this.pos.x, this.pos.y, this.pos.z)) {
-      this.pos[axis] -= delta;
-      this.vel[axis] = 0;
+    if (!this.collides(this.pos.x, this.pos.y, this.pos.z)) return false;
+    // auto step-up: smoothly walk over single blocks (Minecraft auto-jump style)
+    if ((axis === "x" || axis === "z") && this.onGround && !this.flying && !this.sneak && !this.inFluid()) {
+      const py = this.pos.y;
+      this.pos.y += 1.02;
+      if (!this.collides(this.pos.x, this.pos.y, this.pos.z)) {
+        this.stepT = 0.16;
+        this.vel.y = Math.max(this.vel.y, 0);
+        return false;
+      }
+      this.pos.y = py;
     }
+    this.pos[axis] = prev;
+    this.vel[axis] = 0;
+    return true;
   }
 
-  applyCamera(camera) {
+  applyCamera(camera, dt = 1 / 60) {
     const eye = this.eyePos();
     const dir = this.lookDir();
-    camera.fov = this.fov;
+    const hSpeed = Math.hypot(this.vel.x, this.vel.z);
+    const moving = this.onGround && hSpeed > 0.6 && !this.flying && !this.boat;
+    this.bobAmp = THREE.MathUtils.lerp(this.bobAmp, moving ? 1 : 0, Math.min(1, dt * 8));
+    if (moving) this.bobPhase += dt * (this.sprint ? 11.5 : 8.6);
+    this.landT = Math.max(0, this.landT - dt * 1.6);
+    const targetFov = this.fov + (moving && this.sprint ? 8 : 0) + (this.flying ? 3 : 0);
+    this._fovS = THREE.MathUtils.lerp(this._fovS, targetFov, Math.min(1, dt * 7));
+    camera.fov = this._fovS;
     camera.updateProjectionMatrix();
     if (this.camMode === 0) {
       camera.position.copy(eye);
+      camera.position.y -= this.landT;
+      if (this.stepT > 0) {
+        camera.position.y -= (this.stepT / 0.16) * 1.02; // smooth catch-up after an auto-step
+        this.stepT = Math.max(0, this.stepT - dt);
+      }
       camera.rotation.order = "YXZ";
       camera.rotation.y = this.yaw;
-      camera.rotation.x = -this.pitch;
+      camera.rotation.x = this.pitch;
+      camera.rotation.z = Math.sin(this.bobPhase) * 0.016 * this.bobAmp;
+      if (this.bobAmp > 0.001) camera.position.y -= Math.abs(Math.sin(this.bobPhase)) * 0.07 * this.bobAmp;
       this.model.visible = false;
     } else {
       this.model.visible = true;
@@ -237,7 +363,12 @@ export class Player {
       pos = this.clipCam(eye, pos);
       camera.position.copy(pos);
       camera.lookAt(eye);
+      camera.rotation.z = 0;
     }
+  }
+
+  under() {
+    return this.world.getBlock(Math.floor(this.pos.x), Math.floor(this.pos.y - 0.4), Math.floor(this.pos.z));
   }
 
   clipCam(from, to) {
@@ -257,11 +388,63 @@ export class Player {
     return to;
   }
 
+  sit(x, y, z) {
+    this.sitting = true;
+    this.sitPos.set(x, y, z);
+    this.pos.set(x, y, z);
+    this.vel.set(0, 0, 0);
+    this.fallStart = y;
+  }
+
+  hide(at) {
+    this.hidden = true;
+    this._w0 = this.w;
+    this._h0 = this.h;
+    this._eye0 = this.eye;
+    this.w = 0.3;
+    this.h = 0.6;
+    this.eye = 0.45;
+    this.pos.copy(at);
+    this.vel.set(0, 0, 0);
+    this.fallStart = at.y;
+  }
+
+  unhide() {
+    this.hidden = false;
+    this.w = this._w0 ?? 0.6;
+    this.h = this._h0 ?? 1.8;
+    this.eye = this._eye0 ?? 1.62;
+    this.pos.y += 1.2;
+  }
+
+  /** mini-block builder size: tiny hitbox, model visible from the outside */
+  setSmall(on) {
+    if (on === this.small) return;
+    this.small = on;
+    if (on) {
+      this._w0 = this.w;
+      this._h0 = this.h;
+      this._eye0 = this.eye;
+      this.w = 0.24;
+      this.h = 0.5;
+      this.eye = 0.38;
+    } else {
+      this.w = this._w0 ?? 0.6;
+      this.h = this._h0 ?? 1.8;
+      this.eye = this._eye0 ?? 1.62;
+      this.pos.y += 0.2;
+    }
+    let tries = 0;
+    while (this.collides(this.pos.x, this.pos.y, this.pos.z) && tries++ < 40) this.pos.y += 0.5;
+    this.vel.set(0, 0, 0);
+  }
+
   syncModel(dt) {
     this.model.position.set(this.pos.x, this.pos.y, this.pos.z);
     this.model.rotation.y = this.yaw;
+    this.model.scale.setScalar(this.hidden ? 0.35 : this.small ? 0.3 : 1);
     const legs = this.model.getObjectByName("legs");
-    if (legs) legs.rotation.x = Math.sin(this.walk * 4) * 0.5;
+    if (legs) legs.rotation.x = this.sitting ? 1.2 : Math.sin(this.walk * 4) * 0.5;
     const arms = this.model.getObjectByName("arms");
     if (arms) arms.rotation.x = Math.sin(this.walk * 4) * 0.4;
   }
@@ -276,7 +459,7 @@ export class Player {
     if (this.mode === "creative" || this.hurtCd > 0 || this.dead) return;
     this.health -= n;
     this.hurtCd = 0.5;
-    this.vel.y = Math.max(this.vel.y, 4);
+    if (src !== "drown" && src !== "starve") this.vel.y = Math.max(this.vel.y, 4);
     if (this.health <= 0) {
       this.health = 0;
       this.dead = true;
@@ -302,6 +485,7 @@ export class Player {
     }
     if (this.hunger <= 0) this.hurt(1 * dt, "starve");
     if (this.hunger >= 18 && this.health < 20) this.health = Math.min(20, this.health + dt * 0.4);
+    if (this.regenT > 0 && this.health < 20) this.health = Math.min(20, this.health + dt * 1.5);
   }
 }
 

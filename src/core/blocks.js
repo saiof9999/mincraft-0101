@@ -1,6 +1,6 @@
 export const AIR = 0;
 
-/** @typedef {{id:number,name:string,solid?:boolean,opaque?:boolean,fluid?:boolean,light?:number,hardness?:number,tool?:string,drop?:number|null,stack?:number,tile?:number|number[],item?:boolean,place?:number,food?:number,damage?:number,fuel?:number,durability?:number}} Def */
+/** @typedef {{id:number,name:string,solid?:boolean,opaque?:boolean,fluid?:boolean,light?:number,hardness?:number,tool?:string,drop?:number|null,stack?:number,tile?:number|number[],item?:boolean,place?:number,food?:number,damage?:number,fuel?:number,durability?:number,mod?:string,aoe?:boolean,buff?:string,boost?:number,throw?:number}} Def */
 
 /** @type {Def[]} */
 export const DEFS = [];
@@ -83,6 +83,17 @@ export const B = {
   lampOn: add({ id: 67, name: "lamp on", light: 15, hardness: 0.3, tile: 74 }),
   pistonHead: add({ id: 68, name: "piston head", hardness: 1.5, tile: 75 }),
   fire: add({ id: 69, name: "fire", solid: false, opaque: false, light: 15, hardness: 0, drop: null, tile: 76 }),
+  // ---- mod blocks ----
+  lucky: add({ id: 70, name: "lucky block", hardness: 0.5, tile: 131, mod: "lucky" }),
+  megaTnt: add({ id: 71, name: "mega tnt", hardness: 0, tile: 132, mod: "boom" }),
+  chair: add({ id: 72, name: "chair", solid: false, opaque: false, hardness: 0.8, tool: "axe", tile: 133, mod: "furniture" }),
+  oakTable: add({ id: 73, name: "oak table", hardness: 1.5, tool: "axe", tile: 134, mod: "furniture" }),
+  lamp: add({ id: 74, name: "lamp", solid: false, opaque: false, light: 14, hardness: 0.3, tile: 135, mod: "furniture" }),
+  sofa: add({ id: 75, name: "sofa", solid: false, opaque: false, hardness: 0.8, tool: "axe", tile: 136, mod: "furniture" }),
+  sandstone: add({ id: 76, name: "sandstone", hardness: 0.8, tool: "pickaxe", tile: 151 }),
+  polishedStone: add({ id: 77, name: "polished stone", hardness: 2, tool: "pickaxe", tile: 152 }),
+  darkPlanks: add({ id: 78, name: "dark planks", hardness: 2, tool: "axe", tile: 153, fuel: 1 }),
+  hay: add({ id: 79, name: "hay bale", hardness: 0.5, tool: "shovel", tile: 154, fuel: 3 }),
 };
 
 export const I = {
@@ -137,6 +148,20 @@ export const I = {
   snowball: add({ id: 149, name: "snowball", item: true, tile: 128, stack: 16 }),
   egg: add({ id: 150, name: "egg", item: true, tile: 129, stack: 16 }),
   seeds: add({ id: 151, name: "seeds", item: true, place: 50, tile: 130, stack: 64 }),
+  // ---- mod items ----
+  katana: add({ id: 152, name: "katana", item: true, tile: 137, damage: 9, stack: 1, durability: 400, mod: "weapons" }),
+  hammer: add({ id: 153, name: "war hammer", item: true, tile: 138, damage: 11, aoe: true, stack: 1, durability: 300, mod: "weapons" }),
+  shuriken: add({ id: 154, name: "shuriken", item: true, tile: 139, throw: 26, stack: 16, mod: "weapons" }),
+  backpack: add({ id: 155, name: "backpack", item: true, tile: 140, stack: 1, mod: "backpack" }),
+  bigBackpack: add({ id: 156, name: "big backpack", item: true, tile: 141, stack: 1, mod: "backpack" }),
+  hugeBackpack: add({ id: 157, name: "huge backpack", item: true, tile: 142, stack: 1, mod: "backpack" }),
+  car: add({ id: 158, name: "car", item: true, tile: 143, stack: 1, mod: "vehicles" }),
+  dynamite: add({ id: 159, name: "dynamite", item: true, tile: 144, throw: 18, stack: 16, mod: "boom" }),
+  goldenApple: add({ id: 160, name: "golden apple", item: true, tile: 145, food: 4, buff: "regen", stack: 16, mod: "food" }),
+  pizza: add({ id: 161, name: "pizza", item: true, tile: 146, food: 10, stack: 8, mod: "food" }),
+  energyDrink: add({ id: 162, name: "energy drink", item: true, tile: 147, boost: 45, stack: 8, mod: "food" }),
+  enderStaff: add({ id: 163, name: "ender staff", item: true, tile: 148, stack: 1, durability: 24, mod: "teleport" }),
+  dragonWhistle: add({ id: 164, name: "dragon whistle", item: true, tile: 149, stack: 1, mod: "dragons" }),
 };
 
 export function def(id) {

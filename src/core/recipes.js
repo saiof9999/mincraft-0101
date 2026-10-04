@@ -51,6 +51,30 @@ export const RECIPES = [
   { out: [I.cookPork, 1], smelt: I.rawPork },
   { out: [I.cookBeef, 1], smelt: I.rawBeef },
   { out: [I.coal, 1], smelt: B.log },
+  // ---- mod recipes ----
+  { out: [I.katana, 1], shapeless: true, in: [[I.iSword, 1], [I.diamond, 2]], mod: "weapons" },
+  { out: [I.hammer, 1], shape: ["I I", "IC ", " S "], keys: { I: I.iron, C: B.cobble, S: I.stick }, mod: "weapons" },
+  { out: [I.shuriken, 4], shapeless: true, in: [[I.iron, 4]], mod: "weapons" },
+  { out: [I.backpack, 1], shape: ["LLL", "S S", "LLL"], keys: { L: I.leather, S: I.string }, mod: "backpack" },
+  { out: [I.bigBackpack, 1], shapeless: true, in: [[I.backpack, 1], [I.iron, 8]], mod: "backpack" },
+  { out: [I.hugeBackpack, 1], shapeless: true, in: [[I.bigBackpack, 1], [I.diamond, 8]], mod: "backpack" },
+  { out: [I.car, 1], shape: ["III", "IRC", "WWW"], keys: { I: I.iron, R: I.redstone, C: B.chest, W: B.wool }, mod: "vehicles" },
+  { out: [I.dynamite, 2], shapeless: true, in: [[I.gunpowder, 2], [I.string, 1]], mod: "boom" },
+  { out: [B.megaTnt, 1], shape: ["GSG", "STS", "GSG"], keys: { G: I.gunpowder, S: B.tnt, T: I.gunpowder }, mod: "boom" },
+  { out: [I.goldenApple, 1], shapeless: true, in: [[I.apple, 1], [I.gold, 8]], mod: "food" },
+  { out: [I.pizza, 1], shapeless: true, in: [[I.bread, 1], [I.wheat, 2]], mod: "food" },
+  { out: [I.energyDrink, 1], shapeless: true, in: [[I.wheat, 1], [I.seeds, 1], [I.gold, 1]], mod: "food" },
+  { out: [I.enderStaff, 1], shape: ["  E", " B ", "S  "], keys: { E: I.pearl, B: I.blazeRod, S: I.stick }, mod: "teleport" },
+  { out: [I.dragonWhistle, 1], shapeless: true, in: [[I.pearl, 1], [I.iron, 2]], mod: "dragons" },
+  { out: [B.chair, 1], shape: ["P P", "PPP", " P "], keys: { P: B.planks }, mod: "furniture" },
+  { out: [B.oakTable, 1], shape: ["PPP", " P "], keys: { P: B.planks }, mod: "furniture" },
+  { out: [B.lamp, 1], shapeless: true, in: [[B.torch, 1], [B.glass, 1], [I.iron, 1]], mod: "furniture" },
+  { out: [B.sofa, 1], shape: ["WWW", "PPP"], keys: { W: B.wool, P: B.planks }, mod: "furniture" },
+  { out: [B.lucky, 1], shapeless: true, in: [[B.goldBlock, 1], [I.diamond, 1], [B.grass, 1]], mod: "lucky" },
+  { out: [B.sandstone, 1], shapeless: true, in: [[B.sand, 4]] },
+  { out: [B.polishedStone, 4], shapeless: true, in: [[B.stone, 4]] },
+  { out: [B.darkPlanks, 4], shapeless: true, in: [[B.planks, 4], [I.coal, 1]] },
+  { out: [B.hay, 1], shapeless: true, in: [[I.wheat, 9]] },
 ];
 
 export const SMELTS = RECIPES.filter((r) => r.smelt);
@@ -66,18 +90,12 @@ function counts(items) {
 }
 
 export function matchShapeless(grid, recipe) {
-  const need = new Map(recipe.in.map(([id, n]) => [id, n]));
+  if (!Array.isArray(grid) || !recipe || !Array.isArray(recipe.in)) return false;
+  const need = new Map();
+  for (const [id, n] of recipe.in) need.set(id, (need.get(id) || 0) + (Number(n) || 0));
   const have = counts(grid);
-  if (have.size !== need.size) {
-    for (const [id, n] of need) if ((have.get(id) || 0) < n) return false;
-    let extra = 0;
-    for (const [id, n] of have) {
-      extra += n - (need.get(id) || 0);
-    }
-    return extra === 0;
-  }
-  for (const [id, n] of need) if ((have.get(id) || 0) < n) return false;
-  for (const [id] of have) if (!need.has(id)) return false;
+  for (const [id, n] of need) if ((have.get(id) || 0) !== n) return false;
+  for (const [id, n] of have) if ((need.get(id) || 0) !== n) return false;
   return true;
 }
 
@@ -112,35 +130,46 @@ function matchesAt(grid, pat, ox, oy, rotFlip) {
 }
 
 export function findCraft(grid) {
-  const filled = grid.filter((x) => x && x.id);
+  if (!Array.isArray(grid)) return null;
   for (const rec of CRAFTS) {
     if (rec.shapeless) {
       if (matchShapeless(grid, rec)) return rec;
-    } else if (rec.shape) {
-      const pat = shapeToGrid(rec.shape, rec.keys);
-      for (let oy = 0; oy < 3; oy++) {
-        for (let ox = 0; ox < 3; ox++) {
-          if (matchesAt(grid, pat, ox, oy)) return rec;
-        }
+      continue;
+    }
+    if (!rec.shape) continue;
+    const pat = shapeToGrid(rec.shape, rec.keys);
+    for (let oy = 0; oy < 3; oy++) {
+      for (let ox = 0; ox < 3; ox++) {
+        if (matchesAt(grid, pat, ox, oy)) return rec;
       }
     }
   }
   return null;
 }
 
+function getCount(mapLike, id) {
+  if (!mapLike) return 0;
+  if (mapLike instanceof Map) return mapLike.get(id) || 0;
+  return mapLike[id] || 0;
+}
+
 export function canCraft(invCounts, rec) {
+  if (!rec) return false;
   if (rec.smelt) return false;
   if (rec.shapeless) {
-    return rec.in.every(([id, n]) => (invCounts.get(id) || 0) >= n);
+    const need = new Map();
+    for (const [id, n] of rec.in || []) need.set(id, (need.get(id) || 0) + (Number(n) || 0));
+    return [...need.entries()].every(([id, n]) => getCount(invCounts, id) >= n);
   }
   const need = new Map();
-  for (const row of rec.shape) {
+  for (const row of rec.shape || []) {
     for (const ch of row) {
       if (ch === " ") continue;
       const id = rec.keys[ch];
+      if (!id) continue;
       need.set(id, (need.get(id) || 0) + 1);
     }
   }
-  for (const [id, n] of need) if ((invCounts.get(id) || 0) < n) return false;
+  for (const [id, n] of need) if (getCount(invCounts, id) < n) return false;
   return true;
 }

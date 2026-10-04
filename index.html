@@ -3,27 +3,79 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Free Craft</title>
+    <title>Mincraft 0101</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect fill='%235a9a3a' width='16' height='16'/><rect fill='%2370b848' y='0' width='16' height='5'/></svg>" />
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
     <canvas id="c"></canvas>
+    <div id="fxu" class="hidden"></div>
+    <div id="fxh"></div>
     <div id="ui">
       <div id="menu" class="screen menu">
-        <div class="logo">FREE CRAFT</div>
-        <div class="splash">Finally, it's free.</div>
+        <div class="logo">MINCRAFT <span class="logo2">0101</span></div>
+        <div class="splash" id="splash">Finally, it's free.</div>
         <div class="btn-col">
-          <button class="mc" data-start="survival">Survival</button>
-          <button class="mc" data-start="creative">Creative</button>
-          <div class="row">
+          <button class="mc primary" id="continueBtn" data-load hidden>
+            <span class="button-label">Continue</span>
+            <span class="button-sub">Resume your latest world</span>
+          </button>
+          <button class="mc primary quickstart" data-quickstart type="button">
+            <span class="button-label">Quick Play</span>
+            <span class="button-sub">Start a fresh survival world instantly</span>
+          </button>
+          <div class="action-grid">
+            <button class="mc action-card" data-create data-mode="survival" type="button">
+              <span class="action-title">Survival</span>
+              <span class="action-meta">Mine, gather, and survive</span>
+            </button>
+            <button class="mc action-card" data-create data-mode="creative" type="button">
+              <span class="action-title">Creative</span>
+              <span class="action-meta">Build without limits</span>
+            </button>
+          </div>
+          <button class="mc" data-store type="button">Mods &amp; Store <span class="free">(all free)</span></button>
+          <div class="seed-row">
             <input class="mc" id="seed" placeholder="Seed (optional)" />
+            <button class="mc seed-button" type="button" data-random-seed>Random</button>
           </div>
         </div>
         <div class="hint">
-          WASD move · Space jump · Shift sneak · Ctrl sprint<br />
-          Mouse look · F5 camera · E inventory · 1-9 hotbar<br />
-          Left break/attack · Right place/use · C items (creative) · Esc pause
+          Pick <b>Survival</b> or <b>Creative</b> on the Create World screen<br />
+          WASD move · Space jump · Shift sneak · double-tap W or Ctrl to sprint · auto-jump is on<br />
+          Left break (items drop) · Right place · E inventory &amp; recipes · 1-9 hotbar<br />
+          G camera · T chat &amp; commands · Esc pause · watch your air bubbles underwater!
+        </div>
+        <div class="foot">Mincraft 0101 v3.0 · an original voxel sandbox · fan-made, not affiliated with Mojang</div>
+      </div>
+      <div id="store" class="screen hidden">
+        <div class="otitle">MOD STORE <span class="free">everything is free</span></div>
+        <div id="storelist"></div>
+        <button class="mc" data-closestore>Back</button>
+      </div>
+      <div id="create" class="screen hidden">
+        <div class="otitle">CREATE WORLD</div>
+        <div class="btn-col">
+          <div class="grouplabel">World name</div>
+          <input class="mc" id="wname" placeholder="World name" value="New World" maxlength="32" />
+          <div class="grouplabel">Game mode</div>
+          <div class="row">
+            <button class="mc modetoggle active" data-mode="survival">Survival</button>
+            <button class="mc modetoggle" data-mode="creative">Creative</button>
+          </div>
+          <div class="grouplabel">Options</div>
+          <label class="checkline"><input type="checkbox" id="cheats" /> Allow cheats (chat commands)</label>
+          <div class="seed-row">
+            <input class="mc" id="cseed" placeholder="Seed (optional)" />
+            <button class="mc seed-button" type="button" data-random-seed>Random</button>
+          </div>
+          <div class="grouplabel">Multiplayer</div>
+          <div class="row">
+            <button class="mc nettoggle active" data-net="single">Single player</button>
+            <button class="mc nettoggle" data-net="server">Server (auto, live sync)</button>
+          </div>
+          <button class="mc" id="docreate">Create Survival World</button>
+          <button class="mc" data-closecreate>Back</button>
         </div>
       </div>
     </div>

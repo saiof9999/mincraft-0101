@@ -1,7 +1,21 @@
-const DB_NAME = "freecraft";
+const DB_NAME = "mincraft0101";
 const STORE = "worlds";
 
+/** Wipe all legacy save data from previous versions (old database name). */
+export function wipeLegacySaves() {
+  if (!globalThis.indexedDB) return;
+  try {
+    const req = indexedDB.deleteDatabase("freecraft");
+    req.onsuccess = () => console.info("[mincraft] old save data deleted");
+    req.onerror = () => {};
+    req.onblocked = () => {};
+  } catch {}
+}
+
 function openDb() {
+  if (typeof indexedDB === "undefined") {
+    return Promise.reject(new Error("IndexedDB is not available in this environment."));
+  }
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => {
@@ -55,14 +69,30 @@ export async function deleteSave(id) {
 }
 
 export function newSaveId() {
+  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === "function") {
+    return `w_${globalThis.crypto.randomUUID()}`;
+  }
   return "w_" + Date.now().toString(36) + "_" + Math.random().toString(36).slice(2, 8);
 }
 
-export function packSlots(slots) {
-  return slots.map((s) => [s.id || 0, s.count || 0]);
+export function packSlots(slots = []) {
+  if (!Array.isArray(slots)) return [];
+  return slots.map((s) => {
+    if (!s || typeof s !== "object") return [0, 0];
+    const id = Number(s.id);
+    const count = Number(s.count);
+    return [Number.isFinite(id) && id > 0 ? Math.floor(id) : 0, Math.max(0, Number.isFinite(count) ? Math.floor(count) : 0)];
+  });
 }
 
-export function unpackSlots(arr, fallback) {
-  if (!arr) return fallback;
-  return arr.map(([id, count]) => ({ id, count }));
+export function unpackSlots(arr, fallback = []) {
+  if (!Array.isArray(arr)) return Array.isArray(fallback) ? fallback : [];
+  return arr.map(([id, count]) => {
+    const slotId = Number(id);
+    const slotCount = Number(count);
+    return {
+      id: Number.isFinite(slotId) && slotId > 0 ? Math.floor(slotId) : 0,
+      count: Math.max(0, Number.isFinite(slotCount) ? Math.floor(slotCount) : 0),
+    };
+  });
 }

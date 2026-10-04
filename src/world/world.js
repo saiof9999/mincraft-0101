@@ -1,8 +1,21 @@
 import * as THREE from "three";
 import { Chunk, CS, CH } from "./chunk.js";
-import { generateChunk, heightAt, strongholdHere, carveStronghold, SEA } from "./gen.js";
+import { generateChunk, heightAt, biomeAt, strongholdHere, carveStronghold, SEA } from "./gen.js";
 import { B, isSolid } from "../core/blocks.js";
+import { hash2 } from "../core/noise.js";
 import { createAtlas } from "../core/atlas.js";
+import { makeWaterCanvas, makeLavaCanvas } from "../core/textures.js";
+
+function fluidTexture(canvas) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
 
 export class World {
   constructor(scene, seed, dim = "overworld") {
@@ -18,19 +31,73 @@ export class World {
     tex.minFilter = THREE.NearestFilter;
     tex.colorSpace = THREE.SRGBColorSpace;
     this.mats = {
-      opaque: new THREE.MeshLambertMaterial({ map: tex }),
+      opaque: new THREE.MeshLambertMaterial({ map: tex, vertexColors: true }),
       trans: new THREE.MeshLambertMaterial({
         map: tex,
+        vertexColors: true,
         transparent: true,
         alphaTest: 0.1,
         depthWrite: false,
       }),
+      water: new THREE.MeshLambertMaterial({
+        map: fluidTexture(makeWaterCanvas()),
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.72,
+        depthWrite: false,
+      }),
+      lava: new THREE.MeshBasicMaterial({ map: fluidTexture(makeLavaCanvas()), vertexColors: true }),
     };
     this.meta = new Map();
     this.view = 4;
     this.extras = {};
     this.edits = new Map();
+    this.minis = new Map(); // "x,y,z" -> Uint8Array(4*4*4) of sub-block ids
     this.onChange = null;
+    this.onExplode = null;
+    this.animT = 0;
+  }
+
+  miniIndex(sx, sy, sz) {
+    return sy * 16 + sz * 4 + sx;
+  }
+
+  getMini(x, y, z) {
+    return this.minis.get(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`) || null;
+  }
+
+  setMini(x, y, z, sx, sy, sz, id) {
+    const key = `${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`;
+    let data = this.minis.get(key);
+    if (!data) {
+      data = new Uint8Array(64);
+      this.minis.set(key, data);
+    }
+    data[this.miniIndex(sx, sy, sz)] = id;
+  }
+
+  removeMini(x, y, z) {
+    this.minis.delete(`${Math.floor(x)},${Math.floor(y)},${Math.floor(z)}`);
+  }
+
+  dumpMinis() {
+    const arr = [];
+    for (const [k, data] of this.minis) arr.push([k, Array.from(data)]);
+    return arr;
+  }
+
+  loadMinis(list) {
+    if (!list) return;
+    for (const [k, data] of list) this.minis.set(k, Uint8Array.from(data));
+  }
+
+  /** scroll the animated fluid textures */
+  tickAnim(dt) {
+    this.animT += dt;
+    const w = this.mats.water.map;
+    w.offset.set((this.animT * 0.03) % 1, (this.animT * 0.021) % 1);
+    const l = this.mats.lava.map;
+    l.offset.set((this.animT * 0.006) % 1, (this.animT * 0.004) % 1);
   }
 
   key(cx, cz) {
@@ -47,7 +114,15 @@ export class World {
     if (y < 0 || y >= CH) return 0;
     const cx = Math.floor(x / CS);
     const cz = Math.floor(z / CS);
-    const ch = this.chunks.get(this.key(cx, cz));
+    // one-entry memo: consecutive lookups usually land in the same chunk,
+    // this avoids allocating a key string for every single block query
+    let ch = this._lc;
+    if (!ch || this._lcx !== cx || this._lcz !== cz) {
+      ch = this.chunks.get(this.key(cx, cz));
+      this._lc = ch;
+      this._lcx = cx;
+      this._lcz = cz;
+    }
     if (!ch) return 0;
     return ch.get(((x % CS) + CS) % CS, y, ((z % CS) + CS) % CS);
   }
@@ -150,6 +225,7 @@ export class World {
       if (dx * dx + dz * dz > (v + 2) * (v + 2)) {
         this.group.remove(ch.group);
         this.chunks.delete(this.key(ch.cx, ch.cz));
+        this._lc = null;
         continue;
       }
       if (ch.dirty && rebuilt < 6) {
@@ -162,6 +238,47 @@ export class World {
   spawnPos() {
     if (this.dim === "nether") return { x: 8, y: 48, z: 8 };
     if (this.dim === "end") return { x: 0, y: 64, z: 0 };
+    // same hashes world generation uses, so we can predict trees/cacti before chunks exist
+    const treeAt = (bx, bz) => {
+      const b = biomeAt(bx, bz, this.seed);
+      if (heightAt(bx, bz, this.seed) <= SEA + 1) return false;
+      if (b === "forest" && hash2(bx, bz, this.seed + 40) > 0.94) return true;
+      if (b === "plains" && hash2(bx, bz, this.seed + 41) > 0.985) return true;
+      if (b === "desert" && hash2(bx, bz, this.seed + 42) > 0.97) return true;
+      return false;
+    };
+    // spiral outward until we find dry, tree-free land (rarely spawn in water)
+    for (let r = 0; r < 40; r++) {
+      const rad = r * 6;
+      const steps = Math.max(1, r * 8);
+      for (let i = 0; i < steps; i++) {
+        const a = (i / steps) * Math.PI * 2;
+        const x = Math.round(Math.cos(a) * rad);
+        const z = Math.round(Math.sin(a) * rad);
+        const bio = biomeAt(x, z, this.seed);
+        if (bio === "ocean" || bio === "beach") continue;
+        // avoid the spot itself AND nearby columns: tree canopies are solid and
+        // reach 2 blocks sideways, so a neighbouring tree could trap the player
+        let nearTree = false;
+        for (let dz = -2; dz <= 2 && !nearTree; dz++) {
+          for (let dx = -2; dx <= 2 && !nearTree; dx++) {
+            if (treeAt(x + dx, z + dz)) nearTree = true;
+          }
+        }
+        if (nearTree) continue;
+        // require the spot and its 4 neighbours to be dry land (no 1-block sand spits)
+        let dry = true;
+        for (const [dx, dz] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) {
+          if (heightAt(x + dx, z + dz, this.seed) <= SEA + 1) {
+            dry = false;
+            break;
+          }
+        }
+        if (!dry) continue;
+        const h = heightAt(x, z, this.seed);
+        return { x: x + 0.5, y: h + 2, z: z + 0.5 };
+      }
+    }
     const h = heightAt(0, 0, this.seed);
     return { x: 0.5, y: h + 3, z: 0.5 };
   }
@@ -187,6 +304,11 @@ export class World {
         }
       }
     }
+    for (const key of [...this.minis.keys()]) {
+      const [mx, my, mz] = key.split(",").map(Number);
+      if (Math.abs(mx - x) <= r && Math.abs(my - y) <= r && Math.abs(mz - z) <= r) this.minis.delete(key);
+    }
+    this.onExplode?.(x + 0.5, y + 0.5, z + 0.5, r);
   }
 
   findPortal(kind, fromX, fromZ) {
